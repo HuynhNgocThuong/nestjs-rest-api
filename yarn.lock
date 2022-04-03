@@ -3507,7 +3507,7 @@
   "resolved" "https://registry.npmjs.org/lodash.merge/-/lodash.merge-4.6.2.tgz"
   "version" "4.6.2"
 
-"lodash@^4.17.19", "lodash@^4.17.21", "lodash@^4.7.0":
+"lodash@^4.17.19", "lodash@^4.17.21", "lodash@^4.17.5", "lodash@^4.7.0":
   "integrity" "sha512-v2kDEe57lecTulaDIuNTPy3Ry4gLGJ6Z1O3vE1krgXZNrsQ+LFTGHVxVjcXPs17LhbZVGedAJv8XZ1tvj5FvSg=="
   "resolved" "https://registry.npmjs.org/lodash/-/lodash-4.17.21.tgz"
   "version" "4.17.21"
@@ -4786,6 +4786,13 @@
     "enhanced-resolve" "^5.0.0"
     "micromatch" "^4.0.0"
     "semver" "^7.3.4"
+
+"ts-mockito@^2.6.1":
+  "integrity" "sha512-qU9m/oEBQrKq5hwfbJ7MgmVN5Gu6lFnIGWvpxSjrqq6YYEVv+RwVFWySbZMBgazsWqv6ctAyVBpo9TmAxnOEKw=="
+  "resolved" "https://registry.npmjs.org/ts-mockito/-/ts-mockito-2.6.1.tgz"
+  "version" "2.6.1"
+  dependencies:
+    "lodash" "^4.17.5"
 
 "ts-node@^10.0.0", "ts-node@>=9.0.0":
   "integrity" "sha512-TbIGS4xgJoX2i3do417KSaep1uRAW/Lu+WAL2doDHC0D6ummjirVOXU5/7aiZotbQ5p1Zp9tP7U6cYhA0O7M8A=="
