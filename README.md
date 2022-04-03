@@ -1,721 +1,444 @@
-# Connecting to MongoDB
+# Protect your APIs with JWT Token
 
-In the last post , we created a RESTful API application for simple CRUD functionalities. In this post, we will enrich it:
+In the last post, we connected to a Mongo server and used a real database to replace the dummy data storage. In this post, we will explore how to protect your APIs when exposing to a client application.
 
-- Add Mongo support
-- Change dummy data storage to use MongoDB
-- Clean the testing codes
+When we come to the security of a web application, technically it will include:
 
-Let's go.
+- **Authentication** - The application will ask you to provide your principal and then it will identify who are you.
+- **Authorization ** - Based on your claims, check if you have permissions to perform some operations.
 
-## Adding MongooseModule
+[Passportjs](http://www.passportjs.org/) is one of the most popular authentication frameworks on the [Expressjs](https://expressjs.com/) platform. Nestjs has great integration with passportjs with its `@nestjs/passportjs` module. We will follow the [Authentication](https://docs.nestjs.com/techniques/authentication) chapter of the official guide to add _local_ and _jwt_ strategies to the application we have done the previous posts.
 
-[MongoDB](https://www.mongodb.com) is a leading document-based NoSQL database. Nestjs has official support for MongoDB via its [Mongoosejs](https://mongoosejs.com/) integration.
+## Prerequisites
 
-Firstly, install the following dependencies.
+Install passportjs related dependencies.
 
 ```bash
-npm install --save @nestjs/mongoose mongoose
-npm install --save-dev @types/mongoose
+$ npm install --save @nestjs/passport passport passport-local @nestjs/jwt passport-jwt
+$ npm install --save-dev @types/passport-local @types/passport-jwt
 ```
 
-Declare a `MongooseModule ` in the top-level `AppModule` to activate Mongoose support.
+Before starting the authentication work, let's generate some skeleton codes.
 
-```typescript
-//... other imports
-import { MongooseModule } from '@nestjs/mongoose';
+Firstly generate a `AuthModule` and `AuthService` .
 
-@Module({
-  imports: [
-    //...other modules imports
-    // add MongooseModule
-    MongooseModule.forRoot('mongodb://localhost/blog'),
-  ],
-  //... providers, controllers
-})
-export class AppModule {}
+```bash
+nest g mo auth
+nest g s auth
 ```
 
-Mongoose requires a Schema definition to describe every document in MongoDB. Nestjs provides a simple to combine the schema definition and document POJO in the same form.
+The authentication should work with users in the application.
 
-Rename our former _post.interface.ts_ to _post.model.ts_, the _.model_ suffix means it is a Mongoose managed `Model`.
+Similarly, create a standalone `UserModule` to handle user queries.
+
+```bash
+nest g mo user
+nest g s user
+```
+
+Ok, let's begin to enrich the `AuthModule`.
+
+## Implementing Authentication
+
+First of all, let's create some resources for the user model, a `Document` and `Schema` file.
+
+Create new file under _/user_ folder.
 
 ```typescript
 import { SchemaFactory, Schema, Prop } from '@nestjs/mongoose';
 import { Document } from 'mongoose';
 
 @Schema()
-export class Post extends Document {
-  @Prop({ required: true })
-  title: string;
+export class User extends Document {
+  @Prop({ require: true })
+  readonly username: string;
 
-  @Prop({ required: true })
-  content: string;
+  @Prop({ require: true })
+  readonly email: string;
 
-  @Prop()
-  createdAt?: Date;
-
-  @Prop()
-  updatedAt?: Date;
+  @Prop({ require: true })
+  readonly password: string;
 }
-export const PostSchema = SchemaFactory.createForClass(Post);
+
+export const UserSchema = SchemaFactory.createForClass(User);
 ```
 
-The annotations `@Schema`, `@Prop` defines the schema definitions on the document class instead of a [mongoose Schema](https://mongoosejs.com/docs/guide.html#definition) function.
+The `User` class is to wrap a document in Mongoose, and `UserSchema` is to describe `User` document.
 
-Open `PostModule`, declare a `posts` collection for storing `Post` document via importing a `MongooseModule.forFeature`.
+Register `UserSchema` in `UserModule`, then you can use `Model<User>` to perform some operations on `User` document.
 
-```
-import { PostSchema } from './post.model';
-//other imports
-
+```typescript
 @Module({
-  imports: [MongooseModule.forFeature([{ name: 'posts', schema: PostSchema }])],
-  // providers, controllers
-})
-export class PostModule {}
-```
-
-## Refactoring PostService
-
-When a Mongoose schema (eg. `PostSchame`) is mapped to a document collection(eg. `posts`), a Mongoose `Model` is ready for the operations of this collections in MongoDB.
-
-Open _post.service.ts_ file.
-
-Change the content to the following:
-
-```typescript
-@Injectable()
-export class PostService {
-  constructor(@InjectModel('posts') private postModel: Model<Post>) {}
-
-  findAll(keyword?: string, skip = 0, limit = 10): Observable<Post[]> {
-    if (keyword) {
-      return from(
-        this.postModel
-          .find({ title: { $regex: '.*' + keyword + '.*' } })
-          .skip(skip)
-          .limit(limit)
-          .exec()
-      );
-    } else {
-      return from(this.postModel.find({}).skip(skip).limit(limit).exec());
-    }
-  }
-
-  findById(id: string): Observable<Post> {
-    return from(this.postModel.findOne({ _id: id }).exec());
-  }
-
-  save(data: CreatePostDto): Observable<Post> {
-    const createPost = this.postModel.create({ ...data });
-    return from(createPost);
-  }
-
-  update(id: string, data: UpdatePostDto): Observable<Post> {
-    return from(this.postModel.findOneAndUpdate({ _id: id }, data).exec());
-  }
-
-  deleteById(id: string): Observable<Post> {
-    return from(this.postModel.findOneAndDelete({ _id: id }).exec());
-  }
-
-  deleteAll(): Observable<any> {
-    return from(this.postModel.deleteMany({}).exec());
-  }
-}
-```
-
-In the constructor of `PostService` class, use a `@InjectMock('posts')` to bind the `posts` collection to a parameterized Model handler.
-
-The usage of all mongoose related functions can be found in [the official Mongoose docs](https://mongoosejs.com/docs/api/query.html).
-
-As you see, we also add two classes `CreatePostDto` and `UpdatePostDto` instead of the original `Post` for the case of creating and updating posts.
-
-Following the principle [separation of concerns](https://en.wikipedia.org/wiki/Separation_of_concerns), `CreatePostDto` and `UpdatePostDto` are only used for transform data from client, add `readonly` modifier to keep the data _immutable_ in the transforming progress.
-
-```typescript
-// create-post.dto.ts
-export class CreatePostDto {
-  readonly title: string;
-  readonly content: string;
-}
-// update-post.dto.ts
-export class UpdatePostDto {
-  readonly title: string;
-  readonly content: string;
-}
-```
-
-## Clean up PostController
-
-Clean the `post.controller.ts` correspondingly.
-
-```typescript
-@Controller('posts')
-export class PostController {
-  constructor(private postService: PostService) {}
-
-  @Get('')
-  getAllPosts(
-    @Query('q') keyword?: string,
-    @Query('limit', new DefaultValuePipe(10), ParseIntPipe) limit?: number,
-    @Query('skip', new DefaultValuePipe(0), ParseIntPipe) skip?: number
-  ): Observable<BlogPost[]> {
-    return this.postService.findAll(keyword, skip, limit);
-  }
-
-  @Get(':id')
-  getPostById(@Param('id') id: string): Observable<BlogPost> {
-    return this.postService.findById(id);
-  }
-
-  @Post('')
-  createPost(@Body() post: CreatePostDto): Observable<BlogPost> {
-    return this.postService.save(post);
-  }
-
-  @Put(':id')
-  updatePost(
-    @Param('id') id: string,
-    @Body() post: UpdatePostDto
-  ): Observable<BlogPost> {
-    return this.postService.update(id, post);
-  }
-
-  @Delete(':id')
-  deletePostById(@Param('id') id: string): Observable<BlogPost> {
-    return this.postService.deleteById(id);
-  }
-}
-```
-
-> Unluckily, Mongoose APIs has no built-in Rxjs's `Observable` support, if you are stick on Rxjs, you have to use `from` to wrap an existing `Promise` to Rxjs's `Observable`. Check [this topic on stackoverflow to know more details about the difference bwteen Promise and Observable](https://stackoverflow.com/questions/37364973/what-is-the-difference-between-promises-and-observables).
-
-## Run the application
-
-To run the application, a running MongoDB server is required. You can download a copy from [MongoDB](https://www.mongodb.com), and follow the [installation guide](https://docs.mongodb.com/manual/installation/) to install it into your system.
-
-Simply, prepare a _docker-compose.yaml_ to run the dependent servers in the development stage.
-
-```yaml
-version: '3.8' # specify docker-compose version
-
-# Define the services/containers to be run
-services:
-  mongodb:
-    image: mongo
-    volumes:
-      - mongodata:/data/db
-    ports:
-      - '27017:27017'
-    networks:
-      - backend
-
-volumes:
-  mongodata:
-
-networks:
-  backend:
-```
-
-Run the following command to start up a mongo service in a Docker container.
-
-```bash
-docker-compose up
-```
-
-Execute the following command in the project root folder to start up the application.
-
-```bash
-npm run start
-```
-
-Now open your terminal and use `curl` to test the endpoints, and make sure it works as expected.
-
-```bash
->curl http://localhost:3000/posts/
-[]
-```
-
-There is no sample data in the MongoDB. Utilizing with [the lifecycle events](https://docs.nestjs.com/fundamentals/lifecycle-events), it is easy to add some sample data for the test purpose.
-
-```typescript
-@Injectable()
-export class DataInitializerService implements OnModuleInit, OnModuleDestroy {
-  private data: CreatePostDto[] = [
-    {
-      title: 'Generate a NestJS project',
-      content: 'content',
-    },
-    {
-      title: 'Create CRUD RESTful APIs',
-      content: 'content',
-    },
-    {
-      title: 'Connect to MongoDB',
-      content: 'content',
-    },
-  ];
-
-  constructor(private postService: PostService) {}
-  onModuleInit(): void {
-    this.data.forEach((d) => {
-      this.postService.save(d).subscribe((saved) => console.log(saved));
-    });
-  }
-  onModuleDestroy(): void {
-    console.log('module is be destroying...');
-    this.postService
-      .deleteAll()
-      .subscribe((del) => console.log(`deleted ${del} records.`));
-  }
-}
-```
-
-Register it in `PostModule`.
-
-```typescript
-//other imports
-import { DataInitializerService } from './data-initializer.service';
-
-@Module({
-  //imports, controllers...
+  imports: [MongooseModule.forFeature([{ name: 'users', schema: UserSchema }])],
   providers: [
-    //other services...
-    DataInitializerService,
+    //...
+  ],
+  exports: [
+    //...
   ],
 })
-export class PostModule {}
+export class UserModule {}
 ```
 
-Run the application again. Now you will see some data when hinting _http://localhost:3000/posts/_.
+The _users_ here is used as the _token_ to identify different `Model` when injecting a `Model`. When registering a `UserSchema` in mongoose, the name attribute in the above `MongooseModule.forFeature` is also the collection name of `User ` documents.
 
-```bash
->curl http://localhost:3000/posts/
-[{"_id":"5ee49c3115a4e75254bb732e","title":"Generate a NestJS project","content":"content","__v":0},{"_id":"5ee49c3115a4e75254bb732f","title":"Create CRUD RESTful APIs","content":"content","__v":0},{"_id":"5ee49c3115a4e75254bb7330","title":"Connect to MongoDB","content":"content","__v":0}]
-
->curl http://localhost:3000/posts/5ee49c3115a4e75254bb732e
-{"_id":"5ee49c3115a4e75254bb732e","title":"Generate a NestJS project","content":"content","__v":0}
-
->curl http://localhost:3000/posts/ -d "{\"title\":\"new post\",\"content\":\"content of my new post\"}" -H "Content-Type:application/json" -X POST
-{"_id":"5ee49ca915a4e75254bb7331","title":"new post","content":"content of my new post","__v":0}
-
->curl http://localhost:3000/posts/5ee49ca915a4e75254bb7331 -d "{\"title\":\"my updated post\",\"content\":\"content of my new post\"}" -H "Content-Type:application/json" -X PUT
-{"_id":"5ee49ca915a4e75254bb7331","title":"new post","content":"content of my new post","__v":0}
-
->curl http://localhost:3000/posts
-[{"_id":"5ee49c3115a4e75254bb732e","title":"Generate a NestJS project","content":"content","__v":0},{"_id":"5ee49c3115a4e75254bb732f","title":"Create CRUD RESTful APIs","content":"content","__v":0},{"_id":"5ee49c3115a4e75254bb7330","title":"Connect to MongoDB","content":"content","__v":0},{"_id":"5ee49ca915a4e75254bb7331","title":"my updated post","content":"content of my new post","__v":0}]
-
->curl http://localhost:3000/posts/5ee49ca915a4e75254bb7331  -X DELETE
-{"_id":"5ee49ca915a4e75254bb7331","title":"my updated post","content":"content of my new post","__v":0}
-
->curl http://localhost:3000/posts
-[{"_id":"5ee49c3115a4e75254bb732e","title":"Generate a NestJS project","content":"content","__v":0},{"_id":"5ee49c3115a4e75254bb732f","title":"Create CRUD RESTful APIs","content":"content","__v":0},{"_id":"5ee49c3115a4e75254bb7330","title":"Connect to MongoDB","content":"content","__v":0}]
-```
-
-## Clean the testing codes
-
-When switching to real data storage instead of the dummy array, we face the first issue is how to treat with the Mongo database dependency in our _post.service.spec.ts_.
-
-Jest provides comprehensive mocking features to isolate the dependencies in test cases. Let's have a look at the whole content of the refactored _post.service.spec.ts_ file.
+Add a `findByUsername` method in `UserService`.
 
 ```typescript
-describe('PostService', () => {
-  let service: PostService;
-  let model: Model<Post>;
+@Injectable()
+export class UserService {
+  constructor(@InjectModel('users') private userModel: Model<User>) {}
+
+  findByUsername(username: string): Observable<User | undefined> {
+    return from(this.userModel.findOne({ username }).exec());
+  }
+}
+```
+
+In the `@Module` declaration of the `UserModule`, register `UserService` in `providers`, and do not forget to add it into `exports`, thus other modules can use this service when importing `UserModule`.
+
+```typescript
+//...other imports
+import { UserService } from './user.service';
+
+@Module({
+  providers: [UserService],
+  exports: [UserService], //exposing users to other modules...
+})
+export class UserModule {}
+```
+
+Create a test case to test the `findByUsername` method.
+
+```typescript
+describe('UserService', () => {
+  let service: UserService;
+  let model: Model<User>;
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
-        PostService,
+        UserService,
         {
-          provide: getModelToken('posts'),
+          provide: getModelToken('users'),
           useValue: {
-            new: jest.fn(),
-            constructor: jest.fn(),
-            find: jest.fn(),
             findOne: jest.fn(),
-            update: jest.fn(),
-            create: jest.fn(),
-            remove: jest.fn(),
-            exec: jest.fn(),
-            findOneAndUpdate: jest.fn(),
-            findOneAndDelete: jest.fn(),
           },
         },
       ],
     }).compile();
 
-    service = module.get<PostService>(PostService);
-    model = module.get<Model<Post>>(getModelToken('posts'));
+    service = module.get<UserService>(UserService);
+    model = module.get<Model<User>>(getModelToken('users'));
   });
 
   it('should be defined', () => {
     expect(service).toBeDefined();
   });
 
-  it('getAllPosts should return 3 posts', async () => {
-    const posts = [
-      {
-        _id: '5ee49c3115a4e75254bb732e',
-        title: 'Generate a NestJS project',
-        content: 'content',
-      },
-      {
-        _id: '5ee49c3115a4e75254bb732f',
-        title: 'Create CRUD RESTful APIs',
-        content: 'content',
-      },
-      {
-        _id: '5ee49c3115a4e75254bb7330',
-        title: 'Connect to MongoDB',
-        content: 'content',
-      },
-    ];
-    jest.spyOn(model, 'find').mockReturnValue({
-      skip: jest.fn().mockReturnValue({
-        limit: jest.fn().mockReturnValue({
-          exec: jest.fn().mockResolvedValueOnce(posts) as any,
-        }),
-      }),
-    } as any);
+  it('findByUsername should return user', async () => {
+    jest
+      .spyOn(model, 'findOne')
+      .mockImplementation((conditions: any, projection: any, options: any) => {
+        return {
+          exec: jest.fn().mockResolvedValue({
+            username: 'thuonghuynh',
+            email: 'thuonghuynh@example.com',
+          } as User),
+        } as any;
+      });
 
-    const data = await service.findAll().toPromise();
-    expect(data.length).toBe(3);
-  });
-
-  it('getPostById with existing id should return 1 post', (done) => {
-    const found = {
-      _id: '5ee49c3115a4e75254bb732e',
-      title: 'Generate a NestJS project',
-      content: 'content',
-    };
-
-    jest.spyOn(model, 'findOne').mockReturnValue({
-      exec: jest.fn().mockResolvedValueOnce(found) as any,
-    } as any);
-
-    service.findById('1').subscribe({
-      next: (data) => {
-        expect(data._id).toBe('5ee49c3115a4e75254bb732e');
-        expect(data.title).toEqual('Generate a NestJS project');
-      },
-      error: (error) => console.log(error),
-      complete: done(),
+    const foundUser = await service.findByUsername('thuonghuynh').toPromise();
+    expect(foundUser).toEqual({
+      username: 'thuonghuynh',
+      email: 'thuonghuynh@example.com',
     });
-  });
-
-  it('should save post', async () => {
-    const toCreated = {
-      title: 'test title',
-      content: 'test content',
-    };
-
-    const toReturned = {
-      _id: '5ee49c3115a4e75254bb732e',
-      ...toCreated,
-    };
-
-    jest.spyOn(model, 'create').mockResolvedValue(toReturned as Post);
-
-    const data = await service.save(toCreated).toPromise();
-    expect(data._id).toBe('5ee49c3115a4e75254bb732e');
-    expect(model.create).toBeCalledWith(toCreated);
-    expect(model.create).toBeCalledTimes(1);
-  });
-
-  it('should update post', (done) => {
-    const toUpdated = {
-      _id: '5ee49c3115a4e75254bb732e',
-      title: 'test title',
-      content: 'test content',
-    };
-
-    jest.spyOn(model, 'findOneAndUpdate').mockReturnValue({
-      exec: jest.fn().mockResolvedValueOnce(toUpdated) as any,
-    } as any);
-
-    service.update('5ee49c3115a4e75254bb732e', toUpdated).subscribe({
-      next: (data) => {
-        expect(data._id).toBe('5ee49c3115a4e75254bb732e');
-      },
-      error: (error) => console.log(error),
-      complete: done(),
-    });
-  });
-
-  it('should delete post', (done) => {
-    jest.spyOn(model, 'findOneAndDelete').mockReturnValue({
-      exec: jest.fn().mockResolvedValueOnce({
-        deletedCount: 1,
-      }),
-    } as any);
-
-    service.deleteById('anystring').subscribe({
-      next: (data) => expect(data).toBeTruthy,
-      error: (error) => console.log(error),
-      complete: done(),
-    });
+    expect(model.findOne).lastCalledWith({ username: 'thuonghuynh' });
+    expect(model.findOne).toBeCalledTimes(1);
   });
 });
 ```
 
-In the above codes,
+`UserService` depends on a `Model<User>`, use a provider to mock it by jest mocking feature. Using `jest.spyOn` method, you can stub the details of a methods, and watch of the calling of this method.
 
-- Use a custom _Provider_ to provide a `PostModel` dependency for `PostService`, the Model is provided in `useValue` which hosted a mocked object instance for PostModel at runtime.
-- In every test case, use `jest.spyOn` to assume some mocked behaviors of PostModel happened before the service is executed.
-- You can use the `toBeCalledWith` like assertions on mocked object or spied object.
+Let's move to `AuthModule`.
 
-> For me, most of time working as a Java/Spring developers, constructing such a simple Jest based test is not easy, [jmcdo29/testing-nestjs](https://github.com/jmcdo29/testing-nestjs) is very helpful for me to jump into jest testing work.
->
-> The jest mock is every different from Mockito in Java. Luckily there is a ts-mockito which port Mockito to the Typescript world, check [this link](https://github.com/NagRock/ts-mockito) for more details .
+With `@nestjs/passpart`, it is simple to set up your passport strategy by extending `PassportStrategy`, we will create two passport strategies here.
 
-OK, let's move to _post.controller.spec.ts_.
+- `LocalStrategy` to handle authentication by username and password fields from request.
+- `JwtStrategy` to handle authentication by given JWT token header.
 
-Similarly, `PostController` depends on `PostService`. To test the functionalities of `PostController`, we should mock it.
+Simplify , generate two files by nest command line.
 
-Like the method we used in `post.service.spec.ts`, we can mock it in a `Provider`.
-
-```typescript
-describe('Post Controller(useValue jest mocking)', () => {
-  let controller: PostController;
-  let postService: PostService;
-
-  beforeEach(async () => {
-    const module: TestingModule = await Test.createTestingModule({
-      providers: [
-        {
-          provide: PostService,
-          useValue: {
-            findAll: jest
-              .fn()
-              .mockImplementation(
-                (_keyword?: string, _skip?: number, _limit?: number) =>
-                  of<any[]>([
-                    {
-                      _id: 'testid',
-                      title: 'test title',
-                      content: 'test content',
-                    },
-                  ])
-              ),
-          },
-        },
-      ],
-      controllers: [PostController],
-    }).compile();
-
-    controller = module.get<PostController>(PostController);
-    postService = module.get<PostService>(PostService);
-  });
-
-  it('should get all posts(useValue: jest mocking)', async () => {
-    const result = await controller.getAllPosts('test', 10, 0).toPromise();
-    expect(result[0]._id).toEqual('testid');
-    expect(postService.findAll).toBeCalled();
-    expect(postService.findAll).lastCalledWith('test', 0, 10);
-  });
-});
+```bash
+nest g class auth/local.strategy.ts --flat
+nest g class auth/jwt.strategy.ts --flat
 ```
 
-Instead of the jest mocking, you can use a dummy implementation directly in the `Provider`.
+Firstly, let's implement the `LocalStrategy`.
 
 ```typescript
-describe('Post Controller(useValue fake object)', () => {
-  let controller: PostController;
-
-  beforeEach(async () => {
-    const module: TestingModule = await Test.createTestingModule({
-      providers: [
-        {
-          provide: PostService,
-          useValue: {
-            findAll: (_keyword?: string, _skip?: number, _limit?: number) =>
-              of<any[]>([
-                { _id: 'testid', title: 'test title', content: 'test content' },
-              ]),
-          },
-        },
-      ],
-      controllers: [PostController],
-    }).compile();
-
-    controller = module.get<PostController>(PostController);
-  });
-
-  it('should get all posts(useValue: fake object)', async () => {
-    const result = await controller.getAllPosts().toPromise();
-    expect(result[0]._id).toEqual('testid');
-  });
-});
-```
-
-Or use fake class to replace the real `PostService` in the tests.
-
-```typescript
-class PostServiceFake {
-  private posts = [
-    {
-      _id: '5ee49c3115a4e75254bb732e',
-      title: 'Generate a NestJS project',
-      content: 'content',
-    },
-    {
-      _id: '5ee49c3115a4e75254bb732f',
-      title: 'Create CRUD RESTful APIs',
-      content: 'content',
-    },
-    {
-      _id: '5ee49c3115a4e75254bb7330',
-      title: 'Connect to MongoDB',
-      content: 'content',
-    },
-  ];
-
-  findAll() {
-    return of(this.posts);
+@Injectable()
+export class LocalStrategy extends PassportStrategy(Strategy) {
+  constructor(private authService: AuthService) {
+    super({
+      usernameField: 'username',
+      passwordField: 'password',
+    });
   }
 
-  findById(id: string) {
-    const { title, content } = this.posts[0];
-    return of({ _id: id, title, content });
-  }
-
-  save(data: CreatePostDto) {
-    return of({ _id: this.posts[0]._id, ...data });
-  }
-
-  update(id: string, data: UpdatePostDto) {
-    return of({ _id: id, ...data });
-  }
-
-  deleteById(id: string) {
-    return of({ ...this.posts[0], _id: id });
+  validate(username: string, password: string): Observable<any> {
+    return this.authService
+      .validateUser(username, password)
+      .pipe(throwIfEmpty(() => new UnauthorizedException()));
   }
 }
-
-describe('Post Controller', () => {
-  let controller: PostController;
-
-  beforeEach(async () => {
-    const module: TestingModule = await Test.createTestingModule({
-      providers: [
-        {
-          provide: PostService,
-          useClass: PostServiceFake,
-        },
-      ],
-      controllers: [PostController],
-    }).compile();
-
-    controller = module.get<PostController>(PostController);
-  });
-
-  it('should be defined', () => {
-    expect(controller).toBeDefined();
-  });
-
-  it('GET on /posts should return all posts', async () => {
-    const posts = await controller.getAllPosts().toPromise();
-    expect(posts.length).toBe(3);
-  });
-
-  it('GET on /posts/1 should return one post ', (done) => {
-    controller.getPostById('1').subscribe((data) => {
-      expect(data._id).toEqual('1');
-      done();
-    });
-  });
-
-  it('POST on /posts should return all posts', async () => {
-    const post: CreatePostDto = {
-      title: 'test title',
-      content: 'test content',
-    };
-    const saved = await controller.createPost(post).toPromise();
-    expect(saved.title).toEqual('test title');
-  });
-
-  it('PUT on /posts/1 should return all posts', (done) => {
-    const post: UpdatePostDto = {
-      title: 'test title',
-      content: 'test content',
-    };
-    controller.updatePost('1', post).subscribe((data) => {
-      expect(data.title).toEqual('test title');
-      expect(data.content).toEqual('test content');
-      done();
-    });
-  });
-
-  it('DELETE on /posts/1 should return true', (done) => {
-    controller.deletePostById('1').subscribe((data) => {
-      expect(data).toBeTruthy();
-      done();
-    });
-  });
-});
 ```
 
-The above codes are more close the ones in the first article, it is simple and easy to understand.
+In the constructor, use `super` to provide the essential options of the strategy you are using. For the local strategy, it requires username and password fields.
 
-> To ensure the fake PostService has the exact method signature of the real PostService, it is better to use an interface to define the methods if you prefer this apporach.
+And the validate method is used to validate the authentication info against given info, here it is the _username_ and _password_ provided from request.
 
-I have mentioned _ts-mockito_, for me it is easier to boost up a Mockito like test.
+> More details about the configuration options and validation of local strategy, check [passport-local](http://www.passportjs.org/packages/passport-local/) project.
 
-```bash
-npm install --save-dev ts-mockito
-```
-
-A simple mockito based test looks like this.
+In `AuthService`, add a method `validateUser`.
 
 ```typescript
-// import facilites from ts-mockito
-import { mock, verify, instance, anyString, anyNumber, when } from 'ts-mockito';
+@Injectable()
+export class AuthService {
+  constructor(
+    private userService: UserService,
+    private jwtService: JwtService
+  ) {}
 
-describe('Post Controller(using ts-mockito)', () => {
-  let controller: PostController;
-  const mockedPostService: PostService = mock(PostService);
-
-  beforeEach(async () => {
-    controller = new PostController(instance(mockedPostService));
-  });
-
-  it('should get all posts(ts-mockito)', async () => {
-    when(
-      mockedPostService.findAll(anyString(), anyNumber(), anyNumber())
-    ).thenReturn(
-      of([
-        { _id: 'testid', title: 'test title', content: 'content' },
-      ]) as Observable<Post[]>
+  validateUser(username: string, pass: string): Observable<any> {
+    return this.userService.findByUsername(username).pipe(
+      map((user) => {
+        if (user && user.password === pass) {
+          const { password, ...result } = user;
+          return result;
+        }
+        return null;
+      })
     );
-    const result = await controller.getAllPosts('', 10, 0).toPromise();
-    expect(result.length).toEqual(1);
-    expect(result[0].title).toBe('test title');
-    verify(
-      mockedPostService.findAll(anyString(), anyNumber(), anyNumber())
-    ).once();
-  });
-});
+  }
+}
 ```
 
-Now run the tests again. All tests should pass.
+> In the real application, we could use a crypto util to hash and compare the input password. We will discuss it in the further post.
+
+It invokes `findByUsername` in `UserService` from `UserModule`. Imports `UserModule` in the declaration of `AuthModule`.
+
+```typescript
+@Module({
+  imports: [
+    UserModule,
+ 	...]
+    ...
+})
+export class AuthModule {}
+```
+
+Let's create a method in `AppController` to implement the authentication by given username and password fields.
+
+```typescript
+@Controller()
+export class AppController {
+  constructor(private authService: AuthService) {}
+
+  @UseGuards(LocalAuthGuard)
+  @Post('auth/login')
+  login(@Req() req: Request): Observable<any> {
+    return this.authService.login(req.user);
+  }
+}
+```
+
+It simply calls another method `login` in `AuthService`.
+
+```typescript
+@Injectable()
+export class AuthService {
+  constructor(
+    private userService: UserService,
+    private jwtService: JwtService
+  ) {}
+  //...
+  login(user: Partial<User>): Observable<any> {
+    const payload = {
+      sub: user.username,
+      email: user.email,
+      roles: user.roles,
+    };
+    return from(this.jwtService.signAsync(payload)).pipe(
+      map((access_token) => {
+        access_token;
+      })
+    );
+  }
+}
+```
+
+The `login` method is responsible for generating a JWT based access token based on the authenticated principal.
+
+The URI path `auth/login` use a `LocalAuthGuard` to protect it.
+
+```typescript
+@Injectable()
+export class LocalAuthGuard extends AuthGuard('local') {}
+```
+
+Let's summarize how local strategy works.
+
+1. When a user hits _auth/login_ with `username` and `password`, `LocalAuthGuard` will be applied.
+2. `LocalAuthGuard` will trigger `LocalStrategy` , and invokes its `validate` method, and store the result back to `request.user`.
+3. Back the controller, read user principal from `request`, generate a JWT token and send it back to the client.
+
+After logging in, the `access token` can be extracted and put into the HTTP header in the new request to access the protected resources.
+
+Let's have a look at how JWT strategy works.
+
+Firstly implement the `JwtStrategy`.
+
+```typescript
+@Injectable()
+export class JwtStrategy extends PassportStrategy(Strategy) {
+  constructor() {
+    super({
+      jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
+      ignoreExpiration: false,
+      secretOrKey: jwtConstants.secret,
+    });
+  }
+
+  validate(payload: any): any {
+    return { email: payload.email, sub: payload.username };
+  }
+}
+```
+
+In the constructor, there are several options configured.
+
+The `jwtFromRequest` specifies the approach to extract token, it can be from HTTP cookie or request header `Authorization` .
+
+If `ignoreExpiration` is false, when decoding the JWT token, it will check expiration date.
+
+The `secretOrKey` is used to sign the JWT token or decode token.
+
+In the `validate` method, the payload is the content of **decoded** JWT claims. You can add custom validation based on the claims.
+
+> More about the configuration options and verify method, check [passport-jwt](http://www.passportjs.org/packages/passport-jwt/) project.
+
+In the declaration of `AuthModule` , imports `JwtModule`, it accept a register method to add initial options for signing the JWT token.
+
+```typescript
+@Module({
+  imports: [
+    // ...
+    JwtModule.register({
+      secret: jwtConstants.secret,
+      signOptions: { expiresIn: '60s' },
+    }),
+  ],
+  providers: [
+    //...,
+    LocalStrategy,
+    JwtStrategy,
+  ],
+  exports: [AuthService],
+})
+export class AuthModule {}
+```
+
+Similarly create a `JwtAuthGuard`, and register it in the _providers_ in `AuthModule`.
+
+```typescript
+@Injectable()
+export class JwtAuthGuard extends AuthGuard('jwt') {}
+```
+
+Create a method to read profile of the current user.
+
+```typescript
+@Controller()
+export class AppController {
+  constructor(private authService: AuthService) {}
+
+  //...
+  @UseGuards(JwtAuthGuard)
+  @Get('profile')
+  getProfile(@Req() req: Request): any {
+    return req.user;
+  }
+}
+```
+
+Let's review the workflow of the JWT strategy.
+
+1. Given a JWT token `XXX`, access _/profile_ with header `Authorization:Bearer XXX`.
+2. `JwtAuthGuard` will trigger `JwtStrategy`, and calls `validate` method, and store the result back to `request.user`.
+3. In the `getProfile` method, send the `request.user` to client.
+
+If you want to set a default strategy, change `PassportModule` in the declaration of `AuthModule` to the following.
+
+```typescript
+@Module({
+  imports: [
+    PassportModule.register({ defaultStrategy: 'jwt' }),
+    //...
+})
+export class AuthModule {}
+```
+
+There are several application lifecycle hooks provided in Nestjs at runtime. In your codes you can observe these lifecycle events and perform some specific tasks for your application.
+
+For example, create a data initializer for `Post` to insert sample data.
+
+```typescript
+@Injectable()
+export class UserDataInitializerService
+  implements OnModuleInit, OnModuleDestroy
+{
+  constructor(@InjectModel('users') private userModel: Model<User>) {}
+  onModuleInit(): void {
+    console.log('(UserModule) is initialized...');
+    this.userModel
+      .create({
+        username: 'thuonghuynh',
+        password: 'password',
+        email: 'thuonghuynh@example.com',
+      })
+      .then((data) => console.log(data));
+  }
+  onModuleDestroy(): void {
+    console.log('(UserModule) is being destroyed...');
+    this.userModel
+      .deleteMany({})
+      .then((del) => console.log(`deleted ${del.deletedCount} rows`));
+  }
+}
+```
+
+> More info about the lifecycle hooks, check the [Lifecycle events](https://docs.nestjs.com/fundamentals/lifecycle-events) chapter of the official docs.
+
+## Run the application
+
+Open your terminal, run the application by executing the following command.
 
 ```bash
-> npm run test
-
-...
-
- PASS  src/app.controller.spec.ts
- PASS  src/post/post.service.spec.ts (10.307 s)
- PASS  src/post/post.controller.spec.ts (10.471 s)
-
-Test Suites: 3 passed, 3 total
-Tests:       17 passed, 17 total
-Snapshots:   0 total
-Time:        11.481 s, estimated 12 s
-Ran all test suites.
+npm run start
 ```
 
-In this post, we connected to the real MongoDB instead of the dummy data storage, correspond to the changes , we have refactored all tests, and discuss some approaches to isolate the dependencies in tests. But we have not test all functionalities in a real integrated environment, Nestjs provides e2e testing skeleton, we will discuss it in a future post.
+Login using the _username/password_ pair.
+
+```bash
+>curl http://localhost:3000/auth/login -d "{\"username\":\"thuonghuynh\", \"password\":\"password\"}" -H "Content-Type:application/json"
+>{"access_token":"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1cG4iOiJoYW50c3kiLCJzdWIiOiI1ZjJkMGU0ODZhOTZiZTEyMDBmZWZjZWMiLCJlbWFpbCI6ImhhbnRzeUBleGFtcGxlLmNvbSIsInJvbGVzIjpbIlVTRVIiXSwiaWF0IjoxNTk2Nzg4NDg5LCJleHAiOjE1OTY3OTIwODl9.4oYpKTikoTfeeaUBoEFr9d1LPcN1pYqHjWXRuZXOfek"}
+```
+
+Try to access the _/profile_ endpoint using this _access_token_.
+
+```bash
+>curl http://localhost:3000/profile -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1cG4iOiJoYW50c3kiLCJzdWIiOiI1ZjJkMGU0ODZhOTZiZTEyMDBmZWZjZWMiLCJlbWFpbCI6ImhhbnRzeUBleGFtcGxlLmNvbSIsInJvbGVzIjpbIlVTRVIiXSwiaWF0IjoxNTk2Nzg4NDg5LCJleHAiOjE1OTY3OTIwODl9.4oYpKTikoTfeeaUBoEFr9d1LPcN1pYqHjWXRuZXOfek"
+{"username":"thuonghuynh","email":"thuonghuynh@example.com","id":"5f2d0e486a96be1200fefcec","roles":["USER"]}
+```
