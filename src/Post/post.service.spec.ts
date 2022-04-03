@@ -100,7 +100,7 @@ describe('PostService', () => {
       ...toCreated,
     };
 
-    jest.spyOn(model, 'create').mockResolvedValue(toCreated as never);
+    jest.spyOn(model, 'create').mockResolvedValue(toReturned as never);
 
     const data = await service.save(toCreated).toPromise();
     expect(data._id).toBe('5ee49c3115a4e75254bb732e');
