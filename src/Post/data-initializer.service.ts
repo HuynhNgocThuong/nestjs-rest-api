@@ -1,6 +1,6 @@
 import { Injectable, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
-import { CreatePostDto } from "../dto/create-post.dto";
-import { PostService } from "../post.service";
+import { CreatePostDto } from "./create-post.dto";
+import { PostService } from "./post.service";
 
 @Injectable()
 export class DataInitializerService implements OnModuleInit, OnModuleDestroy {

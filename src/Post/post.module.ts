@@ -3,7 +3,7 @@ import { PostService } from './post.service';
 import { PostController } from './post.controller';
 import { MongooseModule } from '@nestjs/mongoose';
 import { PostSchema } from './post.model';
-import { DataInitializerService } from './initialData/data-initializer.service';
+import { DataInitializerService } from './data-initializer.service';
 
 @Module({
   imports: [
