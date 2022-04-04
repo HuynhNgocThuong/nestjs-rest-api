@@ -35,18 +35,18 @@ describe('UserService', () => {
       .mockImplementation((conditions: any, projection: any, options: any) => {
         return {
           exec: jest.fn().mockResolvedValue({
-            username: 'hantsy',
-            email: 'hantsy@example.com',
+            username: 'thuonghuynh',
+            email: 'thuonghuynh@example.com',
           } as User),
         } as any;
       });
 
-    const foundUser = await service.findByUsername('hantsy').toPromise();
+    const foundUser = await service.findByUsername('thuonghuynh').toPromise();
     expect(foundUser).toEqual({
-      username: 'hantsy',
-      email: 'hantsy@example.com',
+      username: 'thuonghuynh',
+      email: 'thuonghuynh@example.com',
     });
-    expect(model.findOne).lastCalledWith({username: 'hantsy'});
+    expect(model.findOne).lastCalledWith({username: 'thuonghuynh'});
     expect(model.findOne).toBeCalledTimes(1);
   });
 });

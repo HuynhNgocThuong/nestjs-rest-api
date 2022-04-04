@@ -11,9 +11,9 @@ export class UserDataInitializerService
     console.log('(UserModule) is initialized...');
     this.userModel
       .create({
-        username: 'hantsy',
+        username: 'thuonghuynh',
         password: 'password',
-        email: 'hantsy@example.com',
+        email: 'thuonghuynh@example.com',
       })
       .then(data => console.log(data));
   }
