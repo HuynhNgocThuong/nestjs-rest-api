@@ -1,15 +1,22 @@
-import { Module } from '@nestjs/common';
-import { PostService } from './post.service';
+import { Module, NestModule, MiddlewareConsumer, RequestMethod } from '@nestjs/common';
 import { PostController } from './post.controller';
+import { PostService } from './post.service';
 import { MongooseModule } from '@nestjs/mongoose';
 import { PostSchema } from './post.model';
-import { DataInitializerService } from './data-initializer.service';
+import { PostDataInitializerService } from './post-data-initializer.service';
+import { AuthenticationMiddleware } from 'src/authentication.middleware';
 
 @Module({
-  imports: [
-    MongooseModule.forFeature([{name: 'posts', schema: PostSchema}])
-  ],
-  providers: [PostService, DataInitializerService],
-  controllers: [PostController]
+  imports: [MongooseModule.forFeature([{ name: 'posts', schema: PostSchema }])],
+  controllers: [PostController],
+  providers: [PostService, PostDataInitializerService],
 })
-export class PostModule {}
+export class PostModule implements NestModule {
+  configure(consumer: MiddlewareConsumer): MiddlewareConsumer | void {
+    consumer.apply(AuthenticationMiddleware).forRoutes(
+      { method: RequestMethod.POST, path: '/posts' },
+      { method: RequestMethod.PUT, path: '/posts/:id' },
+      { method: RequestMethod.DELETE, path: '/posts/:id' }
+    )
+  }
+}

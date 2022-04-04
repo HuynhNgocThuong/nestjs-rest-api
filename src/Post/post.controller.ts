@@ -1,11 +1,22 @@
-import { Body, Controller, DefaultValuePipe, Delete, Get, Param, ParseIntPipe, Post, Put, Query } from '@nestjs/common';
-import { Observable, take, toArray } from 'rxjs';
-import { CreatePostDto } from './create-post.dto';
-import { UpdatePostDto } from './update-post.dto';
-import { Post as BlogPost} from './post.model';
+import {
+  Controller,
+  Query,
+  Get,
+  Param,
+  Post,
+  Body,
+  Put,
+  Delete,
+  ParseIntPipe,
+  DefaultValuePipe,
+} from '@nestjs/common';
+import { Observable } from 'rxjs';
 import { PostService } from './post.service';
+import { Post as BlogPost } from './post.model';
+import { UpdatePostDto } from './update-post.dto';
+import { CreatePostDto } from './create-post.dto';
 
-@Controller('post')
+@Controller('posts')
 export class PostController {
   constructor(private postService: PostService) {}
 
